@@ -127,18 +127,20 @@ func main() {
 
 	// Tool: Drive Search
 	s.AddTool(mcp.NewTool("drive_search",
-		mcp.WithDescription("Search for files in Google Drive. You can provide a raw 'query' string (Google Drive query syntax) OR use the helper arguments to build a query."),
+		mcp.WithDescription("Search for files in Google Drive. Use raw 'query' (Drive query syntax) OR helper args. Use content_contains for fullText search; set include_snippet to get a short preview without reading the whole file."),
 		mcp.WithNumber("limit", mcp.Description("Maximum number of files to return (default 10)")),
 		mcp.WithString("query", mcp.Description("Raw Google Drive query string (e.g. \"name contains 'foo'\")")),
 		mcp.WithString("name_contains", mcp.Description("Filter by name containing this string")),
 		mcp.WithString("content_contains", mcp.Description("Filter by content containing this string (fullText)")),
 		mcp.WithString("mime_type", mcp.Description("Filter by exact mimeType (e.g. 'application/vnd.google-apps.folder')")),
+		mcp.WithString("include_snippet", mcp.Description("If 'true', include a short content snippet per file when using content_contains (default: false)")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		limit := int64(request.GetInt("limit", 10))
 		rawQuery := request.GetString("query", "")
 		nameContains := request.GetString("name_contains", "")
 		contentContains := request.GetString("content_contains", "")
 		mimeType := request.GetString("mime_type", "")
+		includeSnippet := request.GetString("include_snippet", "false") == "true"
 
 		var queryParts []string
 		if rawQuery != "" {
@@ -155,18 +157,33 @@ func main() {
 		}
 
 		finalQuery := strings.Join(queryParts, " and ")
-		if finalQuery == "" {
-			// Default to listing all root files if no query provided? Or just 10 files?
-			// Let's just list 10 files if empty, consistent with ListFiles
-			finalQuery = "" // SearchFiles handles empty query by just listing non-trashed
+
+		if includeSnippet && finalQuery != "" {
+			results, err := driveService.SearchFilesWithSnippets(finalQuery, limit, 300)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to search files: %v", err)), nil
+			}
+			var result string
+			for _, r := range results {
+				result += fmt.Sprintf("[%s] %s (%s)\n", r.File.Id, r.File.Name, r.File.MimeType)
+				if r.Snippet != "" {
+					snip := strings.TrimSpace(r.Snippet)
+					if len(snip) > 280 {
+						snip = snip[:280] + "..."
+					}
+					result += fmt.Sprintf("  snippet: %s\n", snip)
+				}
+			}
+			if len(results) == 0 {
+				result = "No files found."
+			}
+			return mcp.NewToolResultText(result), nil
 		}
 
 		files, err := driveService.SearchFiles(finalQuery, limit)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to search files: %v", err)), nil
 		}
-
-		// Format output
 		var result string
 		for _, f := range files {
 			result += fmt.Sprintf("[%s] %s (%s)\n", f.Id, f.Name, f.MimeType)
@@ -174,7 +191,56 @@ func main() {
 		if len(files) == 0 {
 			result = "No files found."
 		}
+		return mcp.NewToolResultText(result), nil
+	})
 
+	// Tool: Drive Find Files (account-wide discovery)
+	s.AddTool(mcp.NewTool("drive_find_files",
+		mcp.WithDescription("Find files across Google Drive by content (fullText search). Optimized for account-wide discovery when you know a phrase or keyword. Use drive_read_file to read a file's full content."),
+		mcp.WithString("search_term", mcp.Required(), mcp.Description("Phrase or keyword to search for in file content")),
+		mcp.WithNumber("limit", mcp.Description("Maximum number of files to return (default 20)")),
+		mcp.WithString("include_snippet", mcp.Description("If 'true', include a short content snippet per file (default: false)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		searchTerm, err := request.RequireString("search_term")
+		if err != nil {
+			return mcp.NewToolResultError("search_term is required"), nil
+		}
+		limit := int64(request.GetInt("limit", 20))
+		includeSnippet := request.GetString("include_snippet", "false") == "true"
+
+		if includeSnippet {
+			results, err := driveService.FindFilesWithSnippets(searchTerm, limit, 300)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to find files: %v", err)), nil
+			}
+			var result string
+			for _, r := range results {
+				result += fmt.Sprintf("[%s] %s (%s)\n", r.File.Id, r.File.Name, r.File.MimeType)
+				if r.Snippet != "" {
+					snip := strings.TrimSpace(r.Snippet)
+					if len(snip) > 280 {
+						snip = snip[:280] + "..."
+					}
+					result += fmt.Sprintf("  snippet: %s\n", snip)
+				}
+			}
+			if len(results) == 0 {
+				result = "No files found."
+			}
+			return mcp.NewToolResultText(result), nil
+		}
+
+		files, err := driveService.FindFiles(searchTerm, limit)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to find files: %v", err)), nil
+		}
+		var result string
+		for _, f := range files {
+			result += fmt.Sprintf("[%s] %s (%s)\n", f.Id, f.Name, f.MimeType)
+		}
+		if len(files) == 0 {
+			result = "No files found."
+		}
 		return mcp.NewToolResultText(result), nil
 	})
 

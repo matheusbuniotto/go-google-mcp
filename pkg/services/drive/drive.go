@@ -41,12 +41,14 @@ func (d *DriveService) ListFiles(limit int64) ([]*drive.File, error) {
 }
 
 // SearchFiles searches for files using specific criteria.
+// Use empty query to list non-trashed files (account-wide). Default filter is trashed = false.
 func (d *DriveService) SearchFiles(query string, limit int64) ([]*drive.File, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	// Default to not trashed
-	if !strings.Contains(query, "trashed") {
+	if query == "" {
+		query = "trashed = false"
+	} else if !strings.Contains(query, "trashed") {
 		query = fmt.Sprintf("(%s) and trashed = false", query)
 	}
 
@@ -59,6 +61,57 @@ func (d *DriveService) SearchFiles(query string, limit int64) ([]*drive.File, er
 		return nil, fmt.Errorf("unable to search files: %w", err)
 	}
 	return r.Files, nil
+}
+
+// SearchFileResult holds a file and an optional content snippet (e.g. first N bytes).
+type SearchFileResult struct {
+	File    *drive.File
+	Snippet string
+}
+
+// SearchFilesWithSnippets runs SearchFiles and optionally fetches a short content snippet per file.
+// maxSnippetBytes limits snippet length per file; 0 disables snippets. Snippet fetch errors are ignored.
+func (d *DriveService) SearchFilesWithSnippets(query string, limit int64, maxSnippetBytes int64) ([]SearchFileResult, error) {
+	files, err := d.SearchFiles(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SearchFileResult, len(files))
+	for i, f := range files {
+		out[i] = SearchFileResult{File: f}
+		if maxSnippetBytes <= 0 {
+			continue
+		}
+		snippet, err := d.ReadFileContent(f.Id, maxSnippetBytes)
+		if err != nil {
+			continue // leave Snippet empty on error
+		}
+		out[i].Snippet = snippet
+	}
+	return out, nil
+}
+
+// findFilesQuery builds the Drive fullText query for a search term (escapes ' and \).
+func findFilesQuery(searchTerm string) string {
+	escaped := strings.ReplaceAll(searchTerm, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `'`, `\'`)
+	return fmt.Sprintf("fullText contains '%s' and trashed = false", escaped)
+}
+
+// FindFiles runs an account-wide fullText search. Use for discovery when you know a phrase to search for.
+func (d *DriveService) FindFiles(searchTerm string, limit int64) ([]*drive.File, error) {
+	if searchTerm == "" {
+		return d.SearchFiles("", limit)
+	}
+	return d.SearchFiles(findFilesQuery(searchTerm), limit)
+}
+
+// FindFilesWithSnippets runs FindFiles and optionally fetches a short content snippet per file.
+func (d *DriveService) FindFilesWithSnippets(searchTerm string, limit int64, maxSnippetBytes int64) ([]SearchFileResult, error) {
+	if searchTerm == "" {
+		return d.SearchFilesWithSnippets("trashed = false", limit, maxSnippetBytes)
+	}
+	return d.SearchFilesWithSnippets(findFilesQuery(searchTerm), limit, maxSnippetBytes)
 }
 
 // ReadFileContent downloads and reads the content of a file.

@@ -17,6 +17,7 @@ Interact with Google Workspace using natural language through these integrated s
 - **📊 Google Sheets**: Create spreadsheets, read ranges, append rows, and update specific cells.
 - **📄 Google Docs**: Create new documents and read full document text.
 - **👥 Google People**: List contacts and create new connections.
+- **✅ Google Tasks**: List task lists and tasks, create, update, and delete tasks (with optional status/due filtering).
 
 ## 🛠 Installation
 

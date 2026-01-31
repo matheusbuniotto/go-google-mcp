@@ -17,12 +17,14 @@ import (
 	sheetssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/sheets"
 	peoplesvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/people"
 	docssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/docs"
+	taskssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/tasks"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/sheets/v4"
 	"google.golang.org/api/people/v1"
 	"google.golang.org/api/docs/v1"
+	"google.golang.org/api/tasks/v1"
 )
 
 func main() {
@@ -51,6 +53,7 @@ func main() {
 		sheets.SpreadsheetsScope,
 		people.ContactsScope,
 		docs.DocumentsScope,
+		tasks.TasksScope,
 	}
 	opts, err := auth.GetClientOptions(context.Background(), *credentialsFile, scopes)
 	if err != nil {
@@ -97,6 +100,13 @@ func main() {
 	docsService, err := docssvc.New(context.Background(), opts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create Docs service: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize Tasks Service
+	tasksService, err := taskssvc.New(context.Background(), opts...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create Tasks service: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -759,6 +769,159 @@ func main() {
 		return mcp.NewToolResultText(fmt.Sprintf("Title: %s\n\n%s", doc.Title, text)), nil
 	})
 
+	// Tool: Tasks List Task Lists
+	s.AddTool(mcp.NewTool("tasks_list_tasklists",
+		mcp.WithDescription("List the user's Google Tasks task lists. Call this first to get task_list_id for other tasks operations."),
+		mcp.WithNumber("max_results", mcp.Description("Max task lists to return (default 100)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		maxResults := int64(request.GetInt("max_results", 100))
+
+		lists, err := tasksService.ListTaskLists(maxResults)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to list task lists: %v", err)), nil
+		}
+
+		var result string
+		for _, l := range lists {
+			result += fmt.Sprintf("ID: %s | Title: %s\n", l.Id, l.Title)
+		}
+		if len(lists) == 0 {
+			result = "No task lists found."
+		}
+		return mcp.NewToolResultText(result), nil
+	})
+
+	// Tool: Tasks List Tasks
+	s.AddTool(mcp.NewTool("tasks_list_tasks",
+		mcp.WithDescription("List tasks in a Google Tasks list. Use tasks_list_tasklists first to get task_list_id."),
+		mcp.WithString("task_list_id", mcp.Required(), mcp.Description("ID of the task list")),
+		mcp.WithString("show_completed", mcp.Description("Include completed tasks: 'true' or 'false' (default: false to reduce output)")),
+		mcp.WithNumber("max_results", mcp.Description("Max tasks to return (default 20, max 100)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		taskListID, err := request.RequireString("task_list_id")
+		if err != nil {
+			return mcp.NewToolResultError("task_list_id is required"), nil
+		}
+		showCompleted := request.GetString("show_completed", "false") == "true"
+		maxResults := int64(request.GetInt("max_results", 20))
+
+		taskList, err := tasksService.ListTasks(taskListID, taskssvc.ListTasksOptions{
+			ShowCompleted: showCompleted,
+			MaxResults:    maxResults,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to list tasks: %v", err)), nil
+		}
+
+		var result string
+		for _, t := range taskList {
+			status := t.Status
+			if status == "" {
+				status = "needsAction"
+			}
+			due := ""
+			if t.Due != "" {
+				due = " | Due: " + t.Due
+			}
+			result += fmt.Sprintf("[%s] %s | Status: %s%s\n", t.Id, t.Title, status, due)
+		}
+		if len(taskList) == 0 {
+			result = "No tasks found."
+		}
+		return mcp.NewToolResultText(result), nil
+	})
+
+	// Tool: Tasks Insert Task
+	s.AddTool(mcp.NewTool("tasks_insert_task",
+		mcp.WithDescription("Create a new task in a Google Tasks list"),
+		mcp.WithString("task_list_id", mcp.Required(), mcp.Description("ID of the task list")),
+		mcp.WithString("title", mcp.Required(), mcp.Description("Task title")),
+		mcp.WithString("notes", mcp.Description("Optional notes")),
+		mcp.WithString("due", mcp.Description("Due date (RFC3339 date, e.g. 2025-02-01)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		taskListID, err := request.RequireString("task_list_id")
+		if err != nil {
+			return mcp.NewToolResultError("task_list_id is required"), nil
+		}
+		title, err := request.RequireString("title")
+		if err != nil {
+			return mcp.NewToolResultError("title is required"), nil
+		}
+		notes := request.GetString("notes", "")
+		due := request.GetString("due", "")
+
+		task, err := tasksService.InsertTask(taskListID, title, notes, due)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to insert task: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Created task: %s (ID: %s)", task.Title, task.Id)), nil
+	})
+
+	// Tool: Tasks Update Task
+	s.AddTool(mcp.NewTool("tasks_update_task",
+		mcp.WithDescription("Update an existing task (title, notes, due date, or status)"),
+		mcp.WithString("task_list_id", mcp.Required(), mcp.Description("ID of the task list")),
+		mcp.WithString("task_id", mcp.Required(), mcp.Description("ID of the task")),
+		mcp.WithString("title", mcp.Description("New title (optional)")),
+		mcp.WithString("notes", mcp.Description("New notes (optional)")),
+		mcp.WithString("due", mcp.Description("New due date RFC3339 (optional)")),
+		mcp.WithString("status", mcp.Description("'needsAction' or 'completed' (optional)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		taskListID, err := request.RequireString("task_list_id")
+		if err != nil {
+			return mcp.NewToolResultError("task_list_id is required"), nil
+		}
+		taskID, err := request.RequireString("task_id")
+		if err != nil {
+			return mcp.NewToolResultError("task_id is required"), nil
+		}
+		title := request.GetString("title", "")
+		notes := request.GetString("notes", "")
+		due := request.GetString("due", "")
+		status := request.GetString("status", "")
+
+		in := taskssvc.UpdateTaskInput{}
+		if title != "" {
+			in.Title = &title
+		}
+		if notes != "" {
+			in.Notes = &notes
+		}
+		if due != "" {
+			in.Due = &due
+		}
+		if status != "" {
+			in.Status = &status
+		}
+
+		task, err := tasksService.UpdateTask(taskListID, taskID, in)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to update task: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Updated task: %s (ID: %s)", task.Title, task.Id)), nil
+	})
+
+	// Tool: Tasks Delete Task
+	s.AddTool(mcp.NewTool("tasks_delete_task",
+		mcp.WithDescription("Delete a task from a Google Tasks list"),
+		mcp.WithString("task_list_id", mcp.Required(), mcp.Description("ID of the task list")),
+		mcp.WithString("task_id", mcp.Required(), mcp.Description("ID of the task to delete")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		taskListID, err := request.RequireString("task_list_id")
+		if err != nil {
+			return mcp.NewToolResultError("task_list_id is required"), nil
+		}
+		taskID, err := request.RequireString("task_id")
+		if err != nil {
+			return mcp.NewToolResultError("task_id is required"), nil
+		}
+
+		if err := tasksService.DeleteTask(taskListID, taskID); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to delete task: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Deleted task: %s", taskID)), nil
+	})
+
 	// Start server (stdio)
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
@@ -802,6 +965,7 @@ func handleAuthCommand() {
 			"https://www.googleapis.com/auth/spreadsheets",
 			"https://www.googleapis.com/auth/contacts",
 			"https://www.googleapis.com/auth/documents",
+			tasks.TasksScope,
 		}
 		if err := auth.Login(context.Background(), secrets, scopes); err != nil {
 			fmt.Printf("Login failed: %v\n", err)

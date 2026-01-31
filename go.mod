@@ -1,4 +1,4 @@
-module github.com/matheus/go-google-mcp
+module github.com/matheusbuniotto/go-google-mcp
 
 go 1.24.5
 

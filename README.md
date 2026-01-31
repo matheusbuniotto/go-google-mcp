@@ -1,7 +1,7 @@
 # go-google-mcp
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/matheus/go-google-mcp)](https://goreportcard.com/report/github.com/matheus/go-google-mcp)
-[![CI](https://github.com/matheus/go-google-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/matheus/go-google-mcp/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/matheusbuniotto/go-google-mcp)](https://goreportcard.com/report/github.com/matheusbuniotto/go-google-mcp)
+[![CI](https://github.com/matheusbuniotto/go-google-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/matheusbuniotto/go-google-mcp/actions/workflows/ci.yml)
 
 **Unified Model Context Protocol (MCP) server for Google Workspace.**
 
@@ -23,7 +23,7 @@ Interact with Google Workspace using natural language through these integrated s
 Ensure you have [Go](https://go.dev/doc/install) installed (version 1.24 or later recommended).
 
 ```bash
-go install github.com/matheus/go-google-mcp/cmd/go-google-mcp@latest
+go install github.com/matheusbuniotto/go-google-mcp/cmd/go-google-mcp@latest
 ```
 
 ## 🔐 Authentication
@@ -74,7 +74,7 @@ gemini mcp add google-workspace $(which go-google-mcp)
 ## 🛠 Development
 
 ```bash
-git clone https://github.com/matheus/go-google-mcp.git
+git clone https://github.com/matheusbuniotto/go-google-mcp.git
 cd go-google-mcp
 go build ./cmd/go-google-mcp
 ```

@@ -1,0 +1,23 @@
+# Binaries
+go-google-mcp
+gogo-mcp
+
+# Dependencies
+vendor/
+
+# Configuration/Secrets
+.go-google-mcp/
+.gogo-mcp/
+token.json
+client_secrets.json
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# Planning files
+task_plan.md
+findings.md
+progress.md
+briefing.md

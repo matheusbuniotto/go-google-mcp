@@ -2,6 +2,11 @@
 /go-google-mcp
 /gogo-mcp
 /mcp-test
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
 # Dependencies
 vendor/
@@ -11,13 +16,31 @@ vendor/
 .gogo-mcp/
 token.json
 client_secrets.json
+*.env
+.env
+.env.*
+!.env.example
 
-# IDEs
+# IDEs and local tooling (best practice: do not commit)
 .idea/
 .vscode/
 *.swp
+.cursor/
+.claude/
+.gemini/
+.opencode/
 
-# Planning files
+# Go test/coverage artifacts
+*.test
+coverage.out
+coverage.html
+*.coverprofile
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Planning files (local only)
 task_plan.md
 findings.md
 progress.md

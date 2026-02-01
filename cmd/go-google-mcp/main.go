@@ -19,6 +19,7 @@ import (
 	docssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/docs"
 	taskssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/tasks"
 	activitysvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/activity"
+	keepsvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/keep"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/calendar/v3"
@@ -27,6 +28,7 @@ import (
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/tasks/v1"
 	"google.golang.org/api/driveactivity/v2"
+	keepapi "google.golang.org/api/keep/v1"
 )
 
 func main() {
@@ -57,6 +59,7 @@ func main() {
 		docs.DocumentsScope,
 		tasks.TasksScope,
 		driveactivity.DriveActivityReadonlyScope,
+		keepapi.KeepScope,
 	}
 	opts, err := auth.GetClientOptions(context.Background(), *credentialsFile, scopes)
 	if err != nil {
@@ -117,6 +120,13 @@ func main() {
 	activityService, err := activitysvc.New(context.Background(), opts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create Activity service: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize Keep Service (Google Keep API)
+	keepService, err := keepsvc.New(context.Background(), opts...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create Keep service: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -1081,6 +1091,171 @@ func main() {
 		return mcp.NewToolResultText(fmt.Sprintf("Deleted task: %s", taskID)), nil
 	})
 
+	// Tool: Keep List Notes
+	s.AddTool(mcp.NewTool("keep_list_notes",
+		mcp.WithDescription("List Google Keep notes. Use note name from results for keep_get_note and keep_delete_note."),
+		mcp.WithNumber("page_size", mcp.Description("Max notes per page (default 20, 0 = server default)")),
+		mcp.WithString("page_token", mcp.Description("Page token from previous list response for next page")),
+		mcp.WithString("filter", mcp.Description("Filter (e.g. 'trashed = false' to exclude trashed). AIP-160 syntax.")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		pageSize := int64(request.GetInt("page_size", 20))
+		pageToken := request.GetString("page_token", "")
+		filter := request.GetString("filter", "trashed = false")
+
+		resp, err := keepService.ListNotes(keepsvc.ListNotesOptions{
+			PageSize:  pageSize,
+			PageToken: pageToken,
+			Filter:    filter,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to list notes: %v", err)), nil
+		}
+
+		var result string
+		for _, n := range resp.Notes {
+			result += fmt.Sprintf("[%s] %s (updated: %s)\n", n.Name, n.Title, n.UpdateTime)
+		}
+		if len(resp.Notes) == 0 {
+			result = "No notes found."
+		} else if resp.NextPageToken != "" {
+			result += fmt.Sprintf("\nnext_page_token: %s", resp.NextPageToken)
+		}
+		return mcp.NewToolResultText(result), nil
+	})
+
+	// Tool: Keep Create Note
+	s.AddTool(mcp.NewTool("keep_create_note",
+		mcp.WithDescription("Create a new Google Keep note. Provide title and either body_text (plain note) or list_items_json (checklist). List items: [{\"text\":\"item 1\",\"checked\":false},{\"text\":\"item 2\",\"checked\":true}]"),
+		mcp.WithString("title", mcp.Required(), mcp.Description("Note title (max 1000 chars)")),
+		mcp.WithString("body_text", mcp.Description("Plain text body for the note (max 20000 chars). Omit if using list_items_json.")),
+		mcp.WithString("list_items_json", mcp.Description("JSON array of list items: [{\"text\":\"...\",\"checked\":false}]. Omit for text-only note.")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		title, err := request.RequireString("title")
+		if err != nil {
+			return mcp.NewToolResultError("title is required"), nil
+		}
+		bodyText := request.GetString("body_text", "")
+		listItemsJSON := request.GetString("list_items_json", "")
+
+		var listItems []*keepapi.ListItem
+		if listItemsJSON != "" {
+			var decoded []struct {
+				Text    string `json:"text"`
+				Checked bool   `json:"checked"`
+			}
+			if err := json.Unmarshal([]byte(listItemsJSON), &decoded); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Invalid list_items_json: %v", err)), nil
+			}
+			for _, d := range decoded {
+				listItems = append(listItems, &keepapi.ListItem{
+					Text:    &keepapi.TextContent{Text: d.Text},
+					Checked: d.Checked,
+				})
+			}
+		}
+
+		note, err := keepService.CreateNote(title, bodyText, listItems)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create note: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Created note: %s (name: %s)", note.Title, note.Name)), nil
+	})
+
+	// Tool: Keep Get Note
+	s.AddTool(mcp.NewTool("keep_get_note",
+		mcp.WithDescription("Get a Google Keep note by name or id. Returns title, body text or list items, and metadata."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Note name (e.g. notes/xyz) or note id (xyz)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		name, err := request.RequireString("name")
+		if err != nil {
+			return mcp.NewToolResultError("name is required"), nil
+		}
+
+		note, err := keepService.GetNote(name)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to get note: %v", err)), nil
+		}
+
+		result := fmt.Sprintf("name: %s\ntitle: %s\ncreateTime: %s\nupdateTime: %s\ntrashed: %v\n", note.Name, note.Title, note.CreateTime, note.UpdateTime, note.Trashed)
+		if note.Body != nil {
+			if note.Body.Text != nil {
+				result += fmt.Sprintf("body (text): %s\n", note.Body.Text.Text)
+			}
+			if note.Body.List != nil && len(note.Body.List.ListItems) > 0 {
+				result += "list items:\n"
+				for i, li := range note.Body.List.ListItems {
+					text := ""
+					if li.Text != nil {
+						text = li.Text.Text
+					}
+					checked := ""
+					if li.Checked {
+						checked = " [checked]"
+					}
+					result += fmt.Sprintf("  %d. %s%s\n", i+1, text, checked)
+				}
+			}
+		}
+		return mcp.NewToolResultText(result), nil
+	})
+
+	// Tool: Keep Update Note (edit)
+	s.AddTool(mcp.NewTool("keep_update_note",
+		mcp.WithDescription("Edit a Google Keep note. API has no native update; replaces note with a new one (new id) and deletes the old. Provide name and any of: title, body_text, list_items_json to change."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Note name (e.g. notes/xyz) or note id to edit")),
+		mcp.WithString("title", mcp.Description("New title (optional)")),
+		mcp.WithString("body_text", mcp.Description("New plain text body (optional; replaces list if set)")),
+		mcp.WithString("list_items_json", mcp.Description("New list items JSON (optional; e.g. [{\"text\":\"...\",\"checked\":false}]. Replaces text body if set.)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		name, err := request.RequireString("name")
+		if err != nil {
+			return mcp.NewToolResultError("name is required"), nil
+		}
+		title := request.GetString("title", "")
+		bodyText := request.GetString("body_text", "")
+		listItemsJSON := request.GetString("list_items_json", "")
+
+		var listItems []*keepapi.ListItem
+		if listItemsJSON != "" {
+			var decoded []struct {
+				Text    string `json:"text"`
+				Checked bool   `json:"checked"`
+			}
+			if err := json.Unmarshal([]byte(listItemsJSON), &decoded); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Invalid list_items_json: %v", err)), nil
+			}
+			for _, d := range decoded {
+				listItems = append(listItems, &keepapi.ListItem{
+					Text:    &keepapi.TextContent{Text: d.Text},
+					Checked: d.Checked,
+				})
+			}
+		}
+
+		in := keepsvc.UpdateNoteInput{Title: title, BodyText: bodyText, ListItems: listItems}
+		note, err := keepService.UpdateNote(name, in)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to update note: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Updated note (new name: %s): %s", note.Name, note.Title)), nil
+	})
+
+	// Tool: Keep Delete Note
+	s.AddTool(mcp.NewTool("keep_delete_note",
+		mcp.WithDescription("Delete a Google Keep note permanently. Caller must be owner."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Note name (e.g. notes/xyz) or note id")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		name, err := request.RequireString("name")
+		if err != nil {
+			return mcp.NewToolResultError("name is required"), nil
+		}
+
+		if err := keepService.DeleteNote(name); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to delete note: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Deleted note: %s", name)), nil
+	})
+
 	// Start server (stdio)
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
@@ -1126,6 +1301,7 @@ func handleAuthCommand() {
 			"https://www.googleapis.com/auth/documents",
 			tasks.TasksScope,
 			driveactivity.DriveActivityReadonlyScope,
+			keepapi.KeepScope,
 		}
 		if err := auth.Login(context.Background(), secrets, scopes); err != nil {
 			fmt.Printf("Login failed: %v\n", err)

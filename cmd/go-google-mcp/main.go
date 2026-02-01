@@ -18,6 +18,7 @@ import (
 	peoplesvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/people"
 	docssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/docs"
 	taskssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/tasks"
+	activitysvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/activity"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/calendar/v3"
@@ -25,6 +26,7 @@ import (
 	"google.golang.org/api/people/v1"
 	"google.golang.org/api/docs/v1"
 	"google.golang.org/api/tasks/v1"
+	"google.golang.org/api/driveactivity/v2"
 )
 
 func main() {
@@ -54,6 +56,7 @@ func main() {
 		people.ContactsScope,
 		docs.DocumentsScope,
 		tasks.TasksScope,
+		driveactivity.DriveActivityReadonlyScope,
 	}
 	opts, err := auth.GetClientOptions(context.Background(), *credentialsFile, scopes)
 	if err != nil {
@@ -107,6 +110,13 @@ func main() {
 	tasksService, err := taskssvc.New(context.Background(), opts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create Tasks service: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize Activity Service (Drive Activity API)
+	activityService, err := activitysvc.New(context.Background(), opts...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create Activity service: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -380,6 +390,89 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Shared file %s with %s as %s", fileID, email, role)), nil
+	})
+
+	// Tool: Drive Get Recent Activity
+	s.AddTool(mcp.NewTool("drive_get_recent_activity",
+		mcp.WithDescription("Get recent Drive activity as human-readable summaries (Edit, Move, Rename, Create, Comment, etc.). Metadata-only to save tokens."),
+		mcp.WithNumber("hours", mcp.Description("How many hours back to look (default 24)")),
+		mcp.WithNumber("limit", mcp.Description("Max activities to return (default 20, max 100)")),
+		mcp.WithString("file_id", mcp.Description("Optional: filter by file ID (items/FILE_ID or just FILE_ID)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		hours := request.GetInt("hours", 24)
+		limit := int64(request.GetInt("limit", 20))
+		fileID := request.GetString("file_id", "")
+
+		summaries, err := activityService.GetRecentActivity(hours, limit, fileID)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to get activity: %v", err)), nil
+		}
+
+		var result string
+		for _, s := range summaries {
+			result += fmt.Sprintf("%s | %s | %s | %s\n", s.Timestamp, s.Action, s.Actor, s.Target)
+		}
+		if len(summaries) == 0 {
+			result = "No recent activity found."
+		}
+		return mcp.NewToolResultText(result), nil
+	})
+
+	// Tool: Drive List Comments
+	s.AddTool(mcp.NewTool("drive_list_comments",
+		mcp.WithDescription("List comments on a Drive file (e.g. Google Doc, Sheet). Use file_id from drive_search or drive_find_files."),
+		mcp.WithString("file_id", mcp.Required(), mcp.Description("ID of the file")),
+		mcp.WithNumber("limit", mcp.Description("Max comments to return (default 50, max 100)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		fileID, err := request.RequireString("file_id")
+		if err != nil {
+			return mcp.NewToolResultError("file_id is required"), nil
+		}
+		limit := int64(request.GetInt("limit", 50))
+
+		comments, err := driveService.ListComments(fileID, limit)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to list comments: %v", err)), nil
+		}
+
+		var result string
+		for _, c := range comments {
+			author := "unknown"
+			if c.Author != nil && c.Author.DisplayName != "" {
+				author = c.Author.DisplayName
+			}
+			resolved := ""
+			if c.Resolved {
+				resolved = " [resolved]"
+			}
+			result += fmt.Sprintf("[%s] %s | %s | %s%s\n", c.Id, c.CreatedTime, author, c.Content, resolved)
+		}
+		if len(comments) == 0 {
+			result = "No comments found."
+		}
+		return mcp.NewToolResultText(result), nil
+	})
+
+	// Tool: Drive Add Comment
+	s.AddTool(mcp.NewTool("drive_add_comment",
+		mcp.WithDescription("Add a comment to a Drive file (e.g. Google Doc, Sheet). Use file_id from drive_search or drive_find_files."),
+		mcp.WithString("file_id", mcp.Required(), mcp.Description("ID of the file")),
+		mcp.WithString("content", mcp.Required(), mcp.Description("Plain text content of the comment")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		fileID, err := request.RequireString("file_id")
+		if err != nil {
+			return mcp.NewToolResultError("file_id is required"), nil
+		}
+		content, err := request.RequireString("content")
+		if err != nil {
+			return mcp.NewToolResultError("content is required"), nil
+		}
+
+		comment, err := driveService.CreateComment(fileID, content)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to add comment: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Comment added (ID: %s)", comment.Id)), nil
 	})
 
 	// Tool: Gmail List Threads
@@ -1032,6 +1125,7 @@ func handleAuthCommand() {
 			"https://www.googleapis.com/auth/contacts",
 			"https://www.googleapis.com/auth/documents",
 			tasks.TasksScope,
+			driveactivity.DriveActivityReadonlyScope,
 		}
 		if err := auth.Login(context.Background(), secrets, scopes); err != nil {
 			fmt.Printf("Login failed: %v\n", err)

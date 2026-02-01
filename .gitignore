@@ -1,6 +1,7 @@
 # Binaries
 /go-google-mcp
 /gogo-mcp
+/mcp-test
 
 # Dependencies
 vendor/

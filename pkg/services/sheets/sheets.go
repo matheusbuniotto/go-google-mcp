@@ -97,3 +97,30 @@ func (s *SheetsService) UpdateValues(spreadsheetId string, rangeName string, val
 	}
 	return resp, nil
 }
+
+// GetSpreadsheet returns spreadsheet metadata including sheet IDs and titles.
+func (s *SheetsService) GetSpreadsheet(spreadsheetId string) (*sheets.Spreadsheet, error) {
+	resp, err := s.srv.Spreadsheets.Get(spreadsheetId).Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get spreadsheet: %w", err)
+	}
+	return resp, nil
+}
+
+// BatchUpdate applies one or more update requests (add sheet, rename sheet, etc.).
+func (s *SheetsService) BatchUpdate(spreadsheetId string, req *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error) {
+	resp, err := s.srv.Spreadsheets.BatchUpdate(spreadsheetId, req).Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch update: %w", err)
+	}
+	return resp, nil
+}
+
+// ClearValues clears values (and optionally format) in a range.
+func (s *SheetsService) ClearValues(spreadsheetId string, rangeName string) (*sheets.ClearValuesResponse, error) {
+	resp, err := s.srv.Spreadsheets.Values.Clear(spreadsheetId, rangeName, &sheets.ClearValuesRequest{}).Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to clear range: %w", err)
+	}
+	return resp, nil
+}

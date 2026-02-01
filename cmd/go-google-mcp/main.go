@@ -47,7 +47,7 @@ func main() {
 	}
 
 	// Initialize Auth
-	// Using Drive, Gmail, Calendar, Sheets, People, Docs scopes
+	// Keep scope omitted so personal accounts can log in; Keep tools return a clear message if used without Workspace.
 	scopes := []string{
 		drive.DriveScope,
 		gmail.GmailReadonlyScope,
@@ -59,7 +59,6 @@ func main() {
 		docs.DocumentsScope,
 		tasks.TasksScope,
 		driveactivity.DriveActivityReadonlyScope,
-		keepapi.KeepScope,
 	}
 	opts, err := auth.GetClientOptions(context.Background(), *credentialsFile, scopes)
 	if err != nil {
@@ -1108,6 +1107,9 @@ func main() {
 			Filter:    filter,
 		})
 		if err != nil {
+			if isKeepUnavailableError(err) {
+				return mcp.NewToolResultError(keepUnavailableMessage), nil
+			}
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to list notes: %v", err)), nil
 		}
 
@@ -1156,6 +1158,9 @@ func main() {
 
 		note, err := keepService.CreateNote(title, bodyText, listItems)
 		if err != nil {
+			if isKeepUnavailableError(err) {
+				return mcp.NewToolResultError(keepUnavailableMessage), nil
+			}
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create note: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Created note: %s (name: %s)", note.Title, note.Name)), nil
@@ -1173,6 +1178,9 @@ func main() {
 
 		note, err := keepService.GetNote(name)
 		if err != nil {
+			if isKeepUnavailableError(err) {
+				return mcp.NewToolResultError(keepUnavailableMessage), nil
+			}
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to get note: %v", err)), nil
 		}
 
@@ -1235,6 +1243,9 @@ func main() {
 		in := keepsvc.UpdateNoteInput{Title: title, BodyText: bodyText, ListItems: listItems}
 		note, err := keepService.UpdateNote(name, in)
 		if err != nil {
+			if isKeepUnavailableError(err) {
+				return mcp.NewToolResultError(keepUnavailableMessage), nil
+			}
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to update note: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Updated note (new name: %s): %s", note.Name, note.Title)), nil
@@ -1251,6 +1262,9 @@ func main() {
 		}
 
 		if err := keepService.DeleteNote(name); err != nil {
+			if isKeepUnavailableError(err) {
+				return mcp.NewToolResultError(keepUnavailableMessage), nil
+			}
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to delete note: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Deleted note: %s", name)), nil
@@ -1301,7 +1315,7 @@ func handleAuthCommand() {
 			"https://www.googleapis.com/auth/documents",
 			tasks.TasksScope,
 			driveactivity.DriveActivityReadonlyScope,
-			keepapi.KeepScope,
+			// Keep scope omitted: personal accounts get invalid_scope; add keepapi.KeepScope here if using a Workspace account.
 		}
 		if err := auth.Login(context.Background(), secrets, scopes); err != nil {
 			fmt.Printf("Login failed: %v\n", err)
@@ -1318,6 +1332,25 @@ func handleAuthCommand() {
 		fmt.Printf("Unknown auth command: %s\n", os.Args[2])
 		os.Exit(1)
 	}
+}
+
+// keepUnavailableMessage is returned when Keep API is not available (e.g. personal account, scope not granted).
+const keepUnavailableMessage = "Google Keep is not available for this account. It may require a Google Workspace account. Enable the Keep API in Cloud Console and add the Keep scope when using a Workspace account."
+
+// isKeepUnavailableError returns true if the error indicates Keep API is not available (scope, 403, not enabled).
+func isKeepUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "403") ||
+		strings.Contains(s, "access not configured") ||
+		strings.Contains(s, "invalid_scope") ||
+		strings.Contains(s, "access_denied") ||
+		strings.Contains(s, "insufficient") ||
+		strings.Contains(s, "permission") ||
+		strings.Contains(s, "not enabled") ||
+		strings.Contains(s, "forbidden")
 }
 
 func pingHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -247,10 +247,44 @@ func (d *DriveService) TrashFile(fileID string) error {
 // AddPermission shares a file.
 func (d *DriveService) AddPermission(fileID string, role string, type_ string, emailAddress string) error {
 	perm := &drive.Permission{
-		Role: role,
-		Type: type_,
+		Role:         role,
+		Type:         type_,
 		EmailAddress: emailAddress,
 	}
 	_, err := d.srv.Permissions.Create(fileID, perm).Do()
 	return err
+}
+
+// ListComments lists comments on a Drive file (e.g. Doc, Sheet).
+func (d *DriveService) ListComments(fileID string, pageSize int64) ([]*drive.Comment, error) {
+	if fileID == "" {
+		return nil, fmt.Errorf("file_id is required")
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	resp, err := d.srv.Comments.List(fileID).PageSize(pageSize).Fields("comments(id,content,createdTime,author,resolved)").Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to list comments: %w", err)
+	}
+	return resp.Comments, nil
+}
+
+// CreateComment adds a comment to a Drive file.
+func (d *DriveService) CreateComment(fileID string, content string) (*drive.Comment, error) {
+	if fileID == "" {
+		return nil, fmt.Errorf("file_id is required")
+	}
+	if content == "" {
+		return nil, fmt.Errorf("content is required")
+	}
+	comment := &drive.Comment{Content: content}
+	c, err := d.srv.Comments.Create(fileID, comment).Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to create comment: %w", err)
+	}
+	return c, nil
 }

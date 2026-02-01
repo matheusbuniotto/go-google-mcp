@@ -870,7 +870,10 @@ func main() {
 		}
 		var req sheets.BatchUpdateSpreadsheetRequest
 		if err := json.Unmarshal([]byte(requestsJSON), &req); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Invalid requests_json: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Invalid requests_json format. Expected Google Sheets BatchUpdateSpreadsheetRequest structure. "+
+					"Example: {\"requests\":[{\"addSheet\":{\"properties\":{\"title\":\"Sheet\"}}}]}. Error: %v",
+				err)), nil
 		}
 		resp, err := sheetsService.BatchUpdate(spreadsheetID, &req)
 		if err != nil {

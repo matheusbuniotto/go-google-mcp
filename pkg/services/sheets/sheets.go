@@ -46,11 +46,11 @@ func (s *SheetsService) ReadValues(spreadsheetId string, rangeName string) ([][]
 	return resp.Values, nil
 }
 
-// AppendValues appends values to a sheet.
-// values should be a JSON string representing [][]interface{} or []interface{} (single row)
-func (s *SheetsService) AppendValues(spreadsheetId string, rangeName string, valuesJSON string) (*sheets.AppendValuesResponse, error) {
+// parseValuesJSON parses a JSON string into a slice of value rows.
+// Accepts either [][]interface{} (array of arrays) or []interface{} (single row).
+func (s *SheetsService) parseValuesJSON(valuesJSON string) ([][]interface{}, error) {
 	var data [][]interface{}
-	
+
 	// Try parsing as array of arrays first
 	if err := json.Unmarshal([]byte(valuesJSON), &data); err != nil {
 		// Try parsing as single array (single row)
@@ -60,6 +60,16 @@ func (s *SheetsService) AppendValues(spreadsheetId string, rangeName string, val
 		} else {
 			return nil, fmt.Errorf("unable to parse values JSON: %w", err)
 		}
+	}
+	return data, nil
+}
+
+// AppendValues appends values to a sheet.
+// values should be a JSON string representing [][]interface{} or []interface{} (single row)
+func (s *SheetsService) AppendValues(spreadsheetId string, rangeName string, valuesJSON string) (*sheets.AppendValuesResponse, error) {
+	data, err := s.parseValuesJSON(valuesJSON)
+	if err != nil {
+		return nil, err
 	}
 
 	vr := &sheets.ValueRange{
@@ -76,15 +86,9 @@ func (s *SheetsService) AppendValues(spreadsheetId string, rangeName string, val
 
 // UpdateValues updates values in a range.
 func (s *SheetsService) UpdateValues(spreadsheetId string, rangeName string, valuesJSON string) (*sheets.UpdateValuesResponse, error) {
-	var data [][]interface{}
-	
-	if err := json.Unmarshal([]byte(valuesJSON), &data); err != nil {
-		var row []interface{}
-		if err2 := json.Unmarshal([]byte(valuesJSON), &row); err2 == nil {
-			data = append(data, row)
-		} else {
-			return nil, fmt.Errorf("unable to parse values JSON: %w", err)
-		}
+	data, err := s.parseValuesJSON(valuesJSON)
+	if err != nil {
+		return nil, err
 	}
 
 	vr := &sheets.ValueRange{

@@ -1,0 +1,20 @@
+# CODEOWNERS file for go-google-mcp
+# This file determines who must review PRs that modify specific parts of the codebase
+
+# Default: require review from repository owner
+* @matheusbuniotto
+
+# Specific service handlers
+/internal/handlers/drive.go @matheusbuniotto
+/internal/handlers/gmail.go @matheusbuniotto
+/internal/handlers/calendar.go @matheusbuniotto
+/internal/handlers/sheets.go @matheusbuniotto
+/internal/handlers/docs.go @matheusbuniotto
+/internal/handlers/tasks.go @matheusbuniotto
+
+# Core utilities
+/internal/auth/ @matheusbuniotto
+/internal/config/ @matheusbuniotto
+
+# Tests and documentation
+*.md @matheusbuniotto

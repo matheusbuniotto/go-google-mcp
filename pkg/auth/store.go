@@ -48,7 +48,9 @@ func SaveToken(token *oauth2.Token) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	return json.NewEncoder(f).Encode(token)
 }
@@ -65,7 +67,9 @@ func LoadToken() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	var token oauth2.Token
 	if err := json.NewDecoder(f).Decode(&token); err != nil {

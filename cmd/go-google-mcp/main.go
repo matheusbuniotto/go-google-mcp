@@ -1364,7 +1364,7 @@ func handleAuthCommand() {
 	if os.Args[2] == "login" {
 		loginCmd := flag.NewFlagSet("login", flag.ExitOnError)
 		secretsPath := loginCmd.String("secrets", "", "Path to client_secrets.json")
-		loginCmd.Parse(os.Args[3:])
+		_ = loginCmd.Parse(os.Args[3:])
 
 		if *secretsPath == "" {
 			fmt.Println("Error: --secrets flag is required")

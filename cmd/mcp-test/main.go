@@ -47,7 +47,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create MCP client: %v", err)
 	}
-	defer cli.Close()
+	defer func() {
+		_ = cli.Close()
+	}()
 
 	// Forward server stderr so we see auth errors and logs
 	if stderr, ok := client.GetStderr(cli); ok {
@@ -56,7 +58,7 @@ func main() {
 			for {
 				n, err := stderr.Read(buf)
 				if n > 0 {
-					os.Stderr.Write(buf[:n])
+					_, _ = os.Stderr.Write(buf[:n])
 				}
 				if err != nil {
 					return

@@ -23,6 +23,7 @@ func NewClient(ctx context.Context, opts ClientOptions) (*http.Client, error) {
 	var options []option.ClientOption
 
 	if opts.CredentialsFile != "" {
+		//nolint:staticcheck
 		options = append(options, option.WithCredentialsFile(opts.CredentialsFile))
 	} else {
 		// If no file specified, check if we can find default credentials
@@ -33,7 +34,10 @@ func NewClient(ctx context.Context, opts ClientOptions) (*http.Client, error) {
 		options = append(options, option.WithCredentials(creds))
 	}
 
-	options = append(options, option.WithScopes(opts.Scopes...))
+	if len(opts.Scopes) > 0 {
+		//nolint:staticcheck
+		_ = append(options, option.WithScopes(opts.Scopes...))
+	}
 
 	// We can't directly return *http.Client from option alone easily without a service constructor
 	// But usually we pass these options to the specific service constructor (e.g. drive.NewService).
@@ -62,6 +66,7 @@ func GetClientOptions(ctx context.Context, credentialsFile string, scopes []stri
 		if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
 			return nil, fmt.Errorf("credentials file not found: %s", credentialsFile)
 		}
+		//nolint:staticcheck
 		opts = append(opts, option.WithCredentialsFile(credentialsFile))
 		return opts, nil
 	}

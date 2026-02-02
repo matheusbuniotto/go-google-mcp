@@ -150,7 +150,9 @@ func (d *DriveService) ReadFileContent(fileID string, limitBytes int64) (string,
 			return "", fmt.Errorf("unable to download file: %w", err)
 		}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	var reader io.Reader = resp.Body
 	if limitBytes > 0 {

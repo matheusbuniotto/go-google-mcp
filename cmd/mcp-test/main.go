@@ -2,8 +2,8 @@
 //
 // Run from repo root:
 //
-//   go build -o go-google-mcp ./cmd/go-google-mcp   # build server (faster startup)
-//   go run ./cmd/mcp-test
+//	go build -o go-google-mcp ./cmd/go-google-mcp   # build server (faster startup)
+//	go run ./cmd/mcp-test
 //
 // Prerequisites:
 //   - Run `go-google-mcp auth login --secrets path/to/client_secrets.json` first.

@@ -124,17 +124,17 @@ func (d *DriveService) ReadFileContent(fileID string, limitBytes int64) (string,
 	}
 
 	var resp *http.Response
-	
+
 	// Handle Google Workspace documents by Exporting
 	if strings.HasPrefix(f.MimeType, "application/vnd.google-apps.") {
 		// Default export formats:
 		// Docs -> text/plain
 		// Sheets -> application/pdf (no text export), or csv? Sheets CSV export is usually via "text/csv"
 		// Slides -> text/plain
-		
+
 		exportMime := "text/plain"
 		if f.MimeType == "application/vnd.google-apps.spreadsheet" {
-			exportMime = "text/csv" 
+			exportMime = "text/csv"
 		}
 		// Try export
 		resp, err = d.srv.Files.Export(fileID, exportMime).Download()
@@ -189,9 +189,9 @@ func (d *DriveService) CreateFile(name string, parentID string, content string, 
 	if parentID != "" {
 		f.Parents = []string{parentID}
 	}
-	
+
 	media := strings.NewReader(content)
-	
+
 	call := d.srv.Files.Create(f).Media(media)
 	if mimeType != "" {
 		f.MimeType = mimeType
@@ -210,21 +210,21 @@ func (d *DriveService) UpdateFile(fileID string, name string, addParents string,
 	if name != "" {
 		f.Name = name
 	}
-	
+
 	call := d.srv.Files.Update(fileID, f)
-	
+
 	if addParents != "" {
 		call.AddParents(addParents)
 	}
 	if removeParents != "" {
 		call.RemoveParents(removeParents)
 	}
-	
+
 	if content != nil {
 		media := strings.NewReader(*content)
 		call.Media(media)
 	}
-	
+
 	file, err := call.Fields("id", "name", "mimeType", "parents").Do()
 	if err != nil {
 		return nil, fmt.Errorf("unable to update file: %w", err)

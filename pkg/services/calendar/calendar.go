@@ -31,7 +31,7 @@ func (c *CalendarService) ListEvents(calendarId string, maxResults int64, timeMi
 	if maxResults <= 0 {
 		maxResults = 10
 	}
-	
+
 	call := c.srv.Events.List(calendarId).
 		ShowDeleted(false).
 		SingleEvents(true).
@@ -41,7 +41,7 @@ func (c *CalendarService) ListEvents(calendarId string, maxResults int64, timeMi
 	if timeMin != "" {
 		call.TimeMin(timeMin)
 	} else {
-		// Default to now if not specified? 
+		// Default to now if not specified?
 		// Actually, standard behavior is usually from now if not specified for "upcoming".
 		call.TimeMin(time.Now().Format(time.RFC3339))
 	}

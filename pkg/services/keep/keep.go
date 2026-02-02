@@ -24,9 +24,9 @@ func New(ctx context.Context, opts ...option.ClientOption) (*Service, error) {
 
 // ListNotesOptions configures list behavior.
 type ListNotesOptions struct {
-	PageSize int64  // Max notes per page (0 = server default)
+	PageSize  int64 // Max notes per page (0 = server default)
 	PageToken string
-	Filter   string // e.g. "trashed = false" (AIP-160)
+	Filter    string // e.g. "trashed = false" (AIP-160)
 }
 
 // ListNotes lists notes. Use filter "trashed = false" to exclude trashed.
@@ -86,9 +86,9 @@ func (s *Service) DeleteNote(name string) error {
 // UpdateNoteInput holds optional fields for editing a note.
 // The Keep API has no update endpoint; we get the note, create a new one with merged content, then delete the old one (note ID will change).
 type UpdateNoteInput struct {
-	Title      string          // If non-empty, replace note title
-	BodyText   string          // If non-empty, replace body with this text (clears list)
-	ListItems  []*keep.ListItem // If non-nil and len > 0, replace body with this list (clears text)
+	Title     string           // If non-empty, replace note title
+	BodyText  string           // If non-empty, replace body with this text (clears list)
+	ListItems []*keep.ListItem // If non-nil and len > 0, replace body with this list (clears text)
 }
 
 // UpdateNote "edits" a note by creating a new note with merged content and deleting the old one. Returns the new note (new name/id).

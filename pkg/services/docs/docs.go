@@ -54,7 +54,7 @@ func (d *DocsService) InsertText(documentId string, text string) error {
 			},
 		},
 	}
-	
+
 	batchUpdate := &docs.BatchUpdateDocumentRequest{
 		Requests: []*docs.Request{req},
 	}

@@ -11,24 +11,24 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/matheusbuniotto/go-google-mcp/pkg/auth"
+	activitysvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/activity"
+	calendarsvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/calendar"
+	docssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/docs"
 	drivesvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/drive"
 	gmailsvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/gmail"
-	calendarsvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/calendar"
-	sheetssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/sheets"
-	peoplesvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/people"
-	docssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/docs"
-	taskssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/tasks"
-	activitysvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/activity"
 	keepsvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/keep"
-	"google.golang.org/api/drive/v3"
-	"google.golang.org/api/gmail/v1"
+	peoplesvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/people"
+	sheetssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/sheets"
+	taskssvc "github.com/matheusbuniotto/go-google-mcp/pkg/services/tasks"
 	"google.golang.org/api/calendar/v3"
-	"google.golang.org/api/sheets/v4"
-	"google.golang.org/api/people/v1"
 	"google.golang.org/api/docs/v1"
-	"google.golang.org/api/tasks/v1"
+	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/driveactivity/v2"
+	"google.golang.org/api/gmail/v1"
 	keepapi "google.golang.org/api/keep/v1"
+	"google.golang.org/api/people/v1"
+	"google.golang.org/api/sheets/v4"
+	"google.golang.org/api/tasks/v1"
 )
 
 func main() {
@@ -346,7 +346,7 @@ func main() {
 		content := request.GetString("content", "")
 		addParent := request.GetString("add_parent_id", "")
 		removeParent := request.GetString("remove_parent_id", "")
-		
+
 		var contentPtr *string
 		if content != "" {
 			contentPtr = &content
@@ -530,7 +530,7 @@ func main() {
 			from := gmailsvc.GetHeader(msg.Payload.Headers, "From")
 			date := gmailsvc.GetHeader(msg.Payload.Headers, "Date")
 			body := gmailsvc.ExtractMessageBody(msg.Payload)
-			
+
 			// Truncate body if too long for safety
 			if len(body) > 2000 {
 				body = body[:2000] + "...(truncated)"

@@ -34,8 +34,8 @@ func (g *GmailService) ListThreads(query string, limit int64) ([]*gmail.Thread, 
 	if query != "" {
 		call.Q(query)
 	}
-	
-r, err := call.Do()
+
+	r, err := call.Do()
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve threads: %w", err)
 	}
@@ -71,7 +71,7 @@ func (g *GmailService) CreateDraft(to string, subject string, body string) (*gma
 	msg := &gmail.Message{
 		Raw: base64.URLEncoding.EncodeToString([]byte(msgStr)),
 	}
-	
+
 	draft := &gmail.Draft{
 		Message: msg,
 	}
@@ -108,7 +108,7 @@ func ExtractMessageBody(payload *gmail.MessagePart) string {
 		data, _ := base64.URLEncoding.DecodeString(payload.Body.Data)
 		body += string(data)
 	}
-	
+
 	for _, part := range payload.Parts {
 		body += ExtractMessageBody(part)
 	}

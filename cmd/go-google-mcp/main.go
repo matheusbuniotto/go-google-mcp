@@ -826,6 +826,83 @@ func main() {
 		return mcp.NewToolResultText(fmt.Sprintf("Updated %d cells.", resp.UpdatedCells)), nil
 	})
 
+	// Tool: Sheets Get Spreadsheet (metadata, sheet IDs and titles)
+	s.AddTool(mcp.NewTool("sheets_get_spreadsheet",
+		mcp.WithDescription("Get spreadsheet metadata including sheet IDs and titles"),
+		mcp.WithString("spreadsheet_id", mcp.Required(), mcp.Description("ID of the spreadsheet")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		spreadsheetID, err := request.RequireString("spreadsheet_id")
+		if err != nil {
+			return mcp.NewToolResultError("spreadsheet_id is required"), nil
+		}
+		sp, err := sheetsService.GetSpreadsheet(spreadsheetID)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to get spreadsheet: %v", err)), nil
+		}
+		type sheetInfo struct {
+			SheetId int64  `json:"sheetId"`
+			Title   string `json:"title"`
+		}
+		var sheets []sheetInfo
+		for _, sh := range sp.Sheets {
+			if sh.Properties != nil {
+				sheets = append(sheets, sheetInfo{SheetId: sh.Properties.SheetId, Title: sh.Properties.Title})
+			}
+		}
+		out := map[string]interface{}{"spreadsheetId": sp.SpreadsheetId, "title": sp.Properties.Title, "sheets": sheets}
+		jsonBytes, _ := json.MarshalIndent(out, "", "  ")
+		return mcp.NewToolResultText(string(jsonBytes)), nil
+	})
+
+	// Tool: Sheets Batch Update (add sheet, rename sheet, etc.)
+	s.AddTool(mcp.NewTool("sheets_batch_update",
+		mcp.WithDescription("Apply batch update: add sheets, rename sheets. Pass requests as JSON (e.g. {\"requests\": [{\"addSheet\": {\"properties\": {\"title\": \"TabName\"}}}]})"),
+		mcp.WithString("spreadsheet_id", mcp.Required(), mcp.Description("ID of the spreadsheet")),
+		mcp.WithString("requests_json", mcp.Required(), mcp.Description("JSON object with \"requests\" array (Google Sheets BatchUpdateSpreadsheetRequest)")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		spreadsheetID, err := request.RequireString("spreadsheet_id")
+		if err != nil {
+			return mcp.NewToolResultError("spreadsheet_id is required"), nil
+		}
+		requestsJSON, err := request.RequireString("requests_json")
+		if err != nil {
+			return mcp.NewToolResultError("requests_json is required"), nil
+		}
+		var req sheets.BatchUpdateSpreadsheetRequest
+		if err := json.Unmarshal([]byte(requestsJSON), &req); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Invalid requests_json format. Expected Google Sheets BatchUpdateSpreadsheetRequest structure. "+
+					"Example: {\"requests\":[{\"addSheet\":{\"properties\":{\"title\":\"Sheet\"}}}]}. Error: %v",
+				err)), nil
+		}
+		resp, err := sheetsService.BatchUpdate(spreadsheetID, &req)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to batch update: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Batch update applied. Replies: %d", len(resp.Replies))), nil
+	})
+
+	// Tool: Sheets Clear Values
+	s.AddTool(mcp.NewTool("sheets_clear_values",
+		mcp.WithDescription("Clear values in a range"),
+		mcp.WithString("spreadsheet_id", mcp.Required(), mcp.Description("ID of the spreadsheet")),
+		mcp.WithString("range", mcp.Required(), mcp.Description("A1 notation range (e.g. 'Sheet1!A7:Z100')")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		spreadsheetID, err := request.RequireString("spreadsheet_id")
+		if err != nil {
+			return mcp.NewToolResultError("spreadsheet_id is required"), nil
+		}
+		rangeName, err := request.RequireString("range")
+		if err != nil {
+			return mcp.NewToolResultError("range is required"), nil
+		}
+		_, err = sheetsService.ClearValues(spreadsheetID, rangeName)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to clear values: %v", err)), nil
+		}
+		return mcp.NewToolResultText("Range cleared."), nil
+	})
+
 	// Tool: People List Connections
 	s.AddTool(mcp.NewTool("people_list_connections",
 		mcp.WithDescription("List contacts (connections)"),

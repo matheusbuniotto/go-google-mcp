@@ -46,11 +46,11 @@ func (s *SheetsService) ReadValues(spreadsheetId string, rangeName string) ([][]
 	return resp.Values, nil
 }
 
-// AppendValues appends values to a sheet.
-// values should be a JSON string representing [][]interface{} or []interface{} (single row)
-func (s *SheetsService) AppendValues(spreadsheetId string, rangeName string, valuesJSON string) (*sheets.AppendValuesResponse, error) {
+// parseValuesJSON parses a JSON string into a slice of value rows.
+// Accepts either [][]interface{} (array of arrays) or []interface{} (single row).
+func (s *SheetsService) parseValuesJSON(valuesJSON string) ([][]interface{}, error) {
 	var data [][]interface{}
-	
+
 	// Try parsing as array of arrays first
 	if err := json.Unmarshal([]byte(valuesJSON), &data); err != nil {
 		// Try parsing as single array (single row)
@@ -60,6 +60,16 @@ func (s *SheetsService) AppendValues(spreadsheetId string, rangeName string, val
 		} else {
 			return nil, fmt.Errorf("unable to parse values JSON: %w", err)
 		}
+	}
+	return data, nil
+}
+
+// AppendValues appends values to a sheet.
+// values should be a JSON string representing [][]interface{} or []interface{} (single row)
+func (s *SheetsService) AppendValues(spreadsheetId string, rangeName string, valuesJSON string) (*sheets.AppendValuesResponse, error) {
+	data, err := s.parseValuesJSON(valuesJSON)
+	if err != nil {
+		return nil, err
 	}
 
 	vr := &sheets.ValueRange{
@@ -76,15 +86,9 @@ func (s *SheetsService) AppendValues(spreadsheetId string, rangeName string, val
 
 // UpdateValues updates values in a range.
 func (s *SheetsService) UpdateValues(spreadsheetId string, rangeName string, valuesJSON string) (*sheets.UpdateValuesResponse, error) {
-	var data [][]interface{}
-	
-	if err := json.Unmarshal([]byte(valuesJSON), &data); err != nil {
-		var row []interface{}
-		if err2 := json.Unmarshal([]byte(valuesJSON), &row); err2 == nil {
-			data = append(data, row)
-		} else {
-			return nil, fmt.Errorf("unable to parse values JSON: %w", err)
-		}
+	data, err := s.parseValuesJSON(valuesJSON)
+	if err != nil {
+		return nil, err
 	}
 
 	vr := &sheets.ValueRange{
@@ -94,6 +98,33 @@ func (s *SheetsService) UpdateValues(spreadsheetId string, rangeName string, val
 	resp, err := s.srv.Spreadsheets.Values.Update(spreadsheetId, rangeName, vr).ValueInputOption("USER_ENTERED").Do()
 	if err != nil {
 		return nil, fmt.Errorf("unable to update data: %w", err)
+	}
+	return resp, nil
+}
+
+// GetSpreadsheet returns spreadsheet metadata including sheet IDs and titles.
+func (s *SheetsService) GetSpreadsheet(spreadsheetId string) (*sheets.Spreadsheet, error) {
+	resp, err := s.srv.Spreadsheets.Get(spreadsheetId).Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get spreadsheet: %w", err)
+	}
+	return resp, nil
+}
+
+// BatchUpdate applies one or more update requests (add sheet, rename sheet, etc.).
+func (s *SheetsService) BatchUpdate(spreadsheetId string, req *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error) {
+	resp, err := s.srv.Spreadsheets.BatchUpdate(spreadsheetId, req).Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch update: %w", err)
+	}
+	return resp, nil
+}
+
+// ClearValues clears values (and optionally format) in a range.
+func (s *SheetsService) ClearValues(spreadsheetId string, rangeName string) (*sheets.ClearValuesResponse, error) {
+	resp, err := s.srv.Spreadsheets.Values.Clear(spreadsheetId, rangeName, &sheets.ClearValuesRequest{}).Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to clear range: %w", err)
 	}
 	return resp, nil
 }

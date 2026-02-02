@@ -91,10 +91,10 @@ func (s *Service) InsertTask(taskListID string, title string, notes string, due 
 
 // UpdateTaskInput holds optional fields for updating a task.
 type UpdateTaskInput struct {
-	Title      *string
-	Notes      *string
-	Due        *string
-	Status     *string // "needsAction" or "completed"
+	Title  *string
+	Notes  *string
+	Due    *string
+	Status *string // "needsAction" or "completed"
 }
 
 // UpdateTask updates an existing task. Only non-nil fields are applied.

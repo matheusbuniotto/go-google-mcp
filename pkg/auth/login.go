@@ -55,11 +55,11 @@ func Login(ctx context.Context, clientSecrets []byte, scopes []string) error {
 		code := r.URL.Query().Get("code")
 		if code == "" {
 			err := fmt.Errorf("code not found in URL")
-			fmt.Fprintf(w, "Error: %s", err)
+			_, _ = fmt.Fprintf(w, "Error: %s", err)
 			errChan <- err
 			return
 		}
-		fmt.Fprintf(w, "Success! You can close this window now.")
+		_, _ = fmt.Fprintf(w, "Success! You can close this window now.")
 		codeChan <- code
 	})
 
@@ -98,6 +98,6 @@ func Login(ctx context.Context, clientSecrets []byte, scopes []string) error {
 
 	fmt.Println("Authentication successful! Token saved.")
 	// Shutdown server
-	server.Shutdown(ctx)
+	_ = server.Shutdown(ctx)
 	return nil
 }

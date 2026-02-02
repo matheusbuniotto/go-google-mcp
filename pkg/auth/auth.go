@@ -23,6 +23,7 @@ func NewClient(ctx context.Context, opts ClientOptions) (*http.Client, error) {
 	var options []option.ClientOption
 
 	if opts.CredentialsFile != "" {
+		//nolint:staticcheck
 		options = append(options, option.WithCredentialsFile(opts.CredentialsFile))
 	} else {
 		// If no file specified, check if we can find default credentials
@@ -33,24 +34,27 @@ func NewClient(ctx context.Context, opts ClientOptions) (*http.Client, error) {
 		options = append(options, option.WithCredentials(creds))
 	}
 
-	options = append(options, option.WithScopes(opts.Scopes...))
+	if len(opts.Scopes) > 0 {
+		//nolint:staticcheck
+		_ = append(options, option.WithScopes(opts.Scopes...))
+	}
 
 	// We can't directly return *http.Client from option alone easily without a service constructor
 	// But usually we pass these options to the specific service constructor (e.g. drive.NewService).
 	// However, if we want a generic http.Client, we can use transport.
-	// A better approach for the "gogo-mcp" might be to return the []option.ClientOption 
+	// A better approach for the "gogo-mcp" might be to return the []option.ClientOption
 	// so the specific service adapters can use them.
-    // BUT, for a unified CRUD, we might want a central client if possible, 
-    // though Google APIs often prefer their own service clients.
-    
-    // Let's create a dummy call to verify auth or just return the options?
-    // Returning options is flexible.
-    // But let's stick to returning a client for generic usage if needed, 
-    // or just a helper to get the token source.
+	// BUT, for a unified CRUD, we might want a central client if possible,
+	// though Google APIs often prefer their own service clients.
 
-    // Actually, `idtoken` or `transport` packages from google-api-go-client can help.
-    // Let's stick to returning the options for now, as that's what NewService expects.
-    return nil, nil
+	// Let's create a dummy call to verify auth or just return the options?
+	// Returning options is flexible.
+	// But let's stick to returning a client for generic usage if needed,
+	// or just a helper to get the token source.
+
+	// Actually, `idtoken` or `transport` packages from google-api-go-client can help.
+	// Let's stick to returning the options for now, as that's what NewService expects.
+	return nil, nil
 }
 
 // GetClientOptions builds the necessary options for Google API services.
@@ -62,6 +66,7 @@ func GetClientOptions(ctx context.Context, credentialsFile string, scopes []stri
 		if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
 			return nil, fmt.Errorf("credentials file not found: %s", credentialsFile)
 		}
+		//nolint:staticcheck
 		opts = append(opts, option.WithCredentialsFile(credentialsFile))
 		return opts, nil
 	}

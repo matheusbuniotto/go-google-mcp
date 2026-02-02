@@ -49,19 +49,19 @@ func (p *PeopleService) CreateContact(givenName string, familyName string, email
 
 // SearchContacts searches for contacts.
 func (p *PeopleService) SearchContacts(query string) ([]*people.Person, error) {
-	// People API search is a bit complex. 
+	// People API search is a bit complex.
 	// Simplest is SearchContacts method if enabled, or listing "people/me" and filtering.
 	// Let's use SearchContacts.
-	
+
 	call := p.srv.People.SearchContacts().
 		Query(query).
 		ReadMask("names,emailAddresses")
-	
+
 	resp, err := call.Do()
 	if err != nil {
 		return nil, fmt.Errorf("unable to search contacts: %w", err)
 	}
-	
+
 	var results []*people.Person
 	for _, res := range resp.Results {
 		if res.Person != nil {

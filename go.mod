@@ -5,7 +5,7 @@ go 1.24.5
 require (
 	github.com/mark3labs/mcp-go v0.43.2
 	golang.org/x/oauth2 v0.35.0
-	google.golang.org/api v0.264.0
+	google.golang.org/api v0.265.0
 )
 
 require (

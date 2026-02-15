@@ -18,7 +18,15 @@ const (
 var BaseDir string
 
 // GetConfigDir returns the path to the configuration directory.
+// Override with GO_GOOGLE_MCP_CONFIG_DIR env var for multi-instance deployments.
 func GetConfigDir() (string, error) {
+	if envDir := os.Getenv("GO_GOOGLE_MCP_CONFIG_DIR"); envDir != "" {
+		if err := os.MkdirAll(envDir, 0700); err != nil {
+			return "", err
+		}
+		return envDir, nil
+	}
+
 	var home string
 	var err error
 	if BaseDir != "" {

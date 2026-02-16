@@ -49,6 +49,15 @@ func TestNewMultiAccountRegistry(t *testing.T) {
 	auth.BaseDir = tmpDir
 	defer func() { auth.BaseDir = origBaseDir }()
 
+	// Clear env var that takes precedence over BaseDir in GetConfigDir().
+	origEnv := os.Getenv("GO_GOOGLE_MCP_CONFIG_DIR")
+	os.Unsetenv("GO_GOOGLE_MCP_CONFIG_DIR")
+	defer func() {
+		if origEnv != "" {
+			os.Setenv("GO_GOOGLE_MCP_CONFIG_DIR", origEnv)
+		}
+	}()
+
 	reg := NewMultiAccountRegistry([]string{"scope1"})
 
 	if !reg.IsMultiAccount() {

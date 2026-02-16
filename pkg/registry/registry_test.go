@@ -1,7 +1,10 @@
 package registry
 
 import (
+	"os"
 	"testing"
+
+	"github.com/matheusbuniotto/go-google-mcp/pkg/auth"
 )
 
 func TestNewLegacyRegistry(t *testing.T) {
@@ -35,17 +38,24 @@ func TestNewLegacyRegistry(t *testing.T) {
 }
 
 func TestNewMultiAccountRegistry(t *testing.T) {
+	// Use a clean temp dir so the test doesn't depend on the real home directory.
+	tmpDir, err := os.MkdirTemp("", "registry-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	origBaseDir := auth.BaseDir
+	auth.BaseDir = tmpDir
+	defer func() { auth.BaseDir = origBaseDir }()
+
 	reg := NewMultiAccountRegistry([]string{"scope1"})
 
 	if !reg.IsMultiAccount() {
 		t.Error("multi-account registry should be multi-account")
 	}
 
-	// Without any accounts configured, Resolve("") should fail.
-	// Note: this test depends on no accounts/ dir existing in the
-	// test environment. The auth.ListAccounts call will return empty
-	// since BaseDir defaults to the home dir, but we can't guarantee
-	// this in all environments. This is more of a smoke test.
+	// With a clean temp dir, no accounts exist. Resolve("") must fail.
 	t.Run("EmptyAccountNoAccounts", func(t *testing.T) {
 		_, err := reg.Resolve("")
 		if err == nil {

@@ -218,4 +218,34 @@ func TestMultiAccount(t *testing.T) {
 			t.Error("expected account dir to be created")
 		}
 	})
+
+	t.Run("PathTraversal_Rejected", func(t *testing.T) {
+		malicious := []string{
+			"../../../etc/passwd",
+			"foo/../../../etc",
+			"account/../../escape",
+			"back\\slash",
+			"null\x00byte",
+		}
+		for _, m := range malicious {
+			_, err := GetAccountDir(m)
+			if err == nil {
+				t.Errorf("expected error for malicious account name %q, got nil", m)
+			}
+		}
+	})
+
+	t.Run("ValidAccountNames_Accepted", func(t *testing.T) {
+		valid := []string{
+			"user@gmail.com",
+			"work@company.co.uk",
+			"test-account_123",
+		}
+		for _, v := range valid {
+			_, err := GetAccountDir(v)
+			if err != nil {
+				t.Errorf("expected no error for valid account name %q, got: %v", v, err)
+			}
+		}
+	})
 }

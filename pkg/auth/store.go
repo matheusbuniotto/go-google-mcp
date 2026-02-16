@@ -2,8 +2,10 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/oauth2"
 )
@@ -114,6 +116,18 @@ func LoadSecrets() ([]byte, error) {
 
 const AccountsDirName = "accounts"
 
+// validateAccountName rejects account names that could escape the
+// accounts/ directory (path traversal) or cause filesystem issues.
+func validateAccountName(account string) error {
+	if account == "" {
+		return fmt.Errorf("account name cannot be empty")
+	}
+	if strings.Contains(account, "..") || strings.Contains(account, "/") || strings.Contains(account, "\\") || strings.Contains(account, "\x00") {
+		return fmt.Errorf("invalid account name %q: must not contain path separators or '..'", account)
+	}
+	return nil
+}
+
 // IsMultiAccount returns true if the accounts/ subdirectory exists
 // and contains at least one account directory with a valid token.json.
 func IsMultiAccount() (bool, error) {
@@ -168,8 +182,12 @@ func ListAccounts() ([]string, error) {
 }
 
 // GetAccountDir returns the config directory for a specific account.
-// Creates it if it doesn't exist.
+// Creates it if it doesn't exist. The account name is validated to
+// prevent path traversal.
 func GetAccountDir(account string) (string, error) {
+	if err := validateAccountName(account); err != nil {
+		return "", err
+	}
 	dir, err := GetConfigDir()
 	if err != nil {
 		return "", err

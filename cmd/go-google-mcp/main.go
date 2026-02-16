@@ -87,8 +87,16 @@ func main() {
 	}
 
 	// Detect multi-account mode and initialize registry.
+	// -creds (Service Account) always forces legacy mode regardless of accounts/ dir.
 	var reg *registry.Registry
-	multiAccount, _ := auth.IsMultiAccount()
+	var multiAccount bool
+	if *credentialsFile == "" {
+		var err error
+		multiAccount, err = auth.IsMultiAccount()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to detect multi-account mode: %v\n", err)
+		}
+	}
 	if multiAccount {
 		fmt.Fprintf(os.Stderr, "Multi-account mode enabled. Accounts resolved at tool call time.\n")
 		reg = registry.NewMultiAccountRegistry(scopes)

@@ -99,3 +99,23 @@ func GetClientOptions(ctx context.Context, credentialsFile string, scopes []stri
 	opts = append(opts, option.WithScopes(scopes...))
 	return opts, nil
 }
+
+// GetClientOptionsForAccount builds client options for a specific account
+// in multi-account mode. It loads the account-specific token and secrets,
+// falling back to shared secrets if the account doesn't have its own.
+func GetClientOptionsForAccount(ctx context.Context, account string, scopes []string) ([]option.ClientOption, error) {
+	token, err := LoadTokenForAccount(account)
+	if err != nil {
+		return nil, fmt.Errorf("no token for account %q: %w", account, err)
+	}
+	secrets, err := LoadSecretsForAccount(account)
+	if err != nil {
+		return nil, fmt.Errorf("no client secrets for account %q: %w", account, err)
+	}
+	config, err := google.ConfigFromJSON(secrets, scopes...)
+	if err != nil {
+		return nil, fmt.Errorf("invalid client secrets for account %q: %w", account, err)
+	}
+	tokenSource := config.TokenSource(ctx, token)
+	return []option.ClientOption{option.WithTokenSource(tokenSource)}, nil
+}

@@ -41,7 +41,27 @@ This tool supports both **User OAuth 2.0** (best for personal/CLI use) and **Ser
     ```
     *This securely saves your token to `~/.go-google-mcp/`.*
 
-### Option 2: Service Account
+### Option 2: Multi-Account (Multiple Google Accounts)
+
+Use a single server instance to serve multiple Google accounts. Each tool call specifies which account to use via the `account` parameter.
+
+1.  **Login each account** (one-time per account):
+    ```bash
+    go-google-mcp auth login --account personal@gmail.com --secrets client_secrets.json
+    go-google-mcp auth login --account work@company.com --secrets client_secrets.json
+    ```
+    *Tokens are stored per account under `~/.go-google-mcp/accounts/<email>/`.*
+
+2.  **List configured accounts**:
+    ```bash
+    go-google-mcp accounts list
+    ```
+
+3.  **Use in tool calls**: Pass `"account": "work@company.com"` in any tool request. With a single account configured, it auto-selects.
+
+> **Backward compatible**: Existing single-account setups continue working unchanged. Multi-account mode activates automatically when the `accounts/` directory is detected.
+
+### Option 3: Service Account
 
 1.  Download your Service Account JSON key.
 2.  Run with the `-creds` flag:

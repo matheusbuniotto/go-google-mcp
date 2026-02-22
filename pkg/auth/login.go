@@ -101,3 +101,80 @@ func Login(ctx context.Context, clientSecrets []byte, scopes []string) error {
 	_ = server.Shutdown(ctx)
 	return nil
 }
+
+// LoginForAccount performs the User OAuth 2.0 flow for a specific account
+// and saves the token under the account-specific directory.
+func LoginForAccount(ctx context.Context, account string, clientSecrets []byte, scopes []string) error {
+	config, err := google.ConfigFromJSON(clientSecrets, scopes...)
+	if err != nil {
+		return fmt.Errorf("unable to parse client secret file to config: %w", err)
+	}
+
+	config.RedirectURL = "http://localhost:8085/callback"
+
+	stateToken, err := generateStateToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate state token: %w", err)
+	}
+
+	codeChan := make(chan string)
+	errChan := make(chan error)
+
+	// Use an explicit mux (not the default) so this can be called multiple times.
+	mux := http.NewServeMux()
+	server := &http.Server{
+		Addr:    "127.0.0.1:8085",
+		Handler: mux,
+	}
+
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("state") != stateToken {
+			err := fmt.Errorf("state token mismatch")
+			http.Error(w, "State token mismatch", http.StatusBadRequest)
+			errChan <- err
+			return
+		}
+
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			err := fmt.Errorf("code not found in URL")
+			_, _ = fmt.Fprintf(w, "Error: %s", err)
+			errChan <- err
+			return
+		}
+		_, _ = fmt.Fprintf(w, "Success! Account %s authenticated. You can close this window.", account)
+		codeChan <- code
+	})
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errChan <- err
+		}
+	}()
+
+	authURL := config.AuthCodeURL(stateToken, oauth2.AccessTypeOffline)
+	fmt.Printf("Authenticate account %q:\n%v\n", account, authURL)
+	fmt.Println("Waiting for authentication...")
+
+	var authCode string
+	select {
+	case authCode = <-codeChan:
+	case err := <-errChan:
+		return fmt.Errorf("server error: %w", err)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	token, err := config.Exchange(ctx, authCode)
+	if err != nil {
+		return fmt.Errorf("unable to retrieve token from web: %w", err)
+	}
+
+	if err := SaveTokenForAccount(account, token); err != nil {
+		return fmt.Errorf("failed to save token: %w", err)
+	}
+
+	fmt.Printf("Account %q authenticated successfully!\n", account)
+	_ = server.Shutdown(ctx)
+	return nil
+}

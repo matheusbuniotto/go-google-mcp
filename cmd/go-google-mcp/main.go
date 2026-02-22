@@ -27,14 +27,21 @@ import (
 )
 
 // addTool wraps s.AddTool to conditionally inject the "account" parameter in multi-account mode.
-func addTool(s *server.MCPServer, tool mcp.Tool, handler server.ToolHandlerFunc, multiAccount bool) {
+// When accountNames is non-empty, the known accounts are listed in the description as a hint
+// (NOT a strict enum — accounts added mid-session are also accepted).
+func addTool(s *server.MCPServer, tool mcp.Tool, handler server.ToolHandlerFunc, multiAccount bool, accountNames []string) {
 	if multiAccount {
 		if tool.InputSchema.Properties == nil {
 			tool.InputSchema.Properties = make(map[string]any)
 		}
+		desc := "Google account email to use."
+		if len(accountNames) > 0 {
+			desc = fmt.Sprintf("Known accounts: %s. %s", strings.Join(accountNames, ", "), desc)
+		}
+		desc += " Required when multiple accounts are configured."
 		tool.InputSchema.Properties["account"] = map[string]any{
 			"type":        "string",
-			"description": "Google account email (e.g. 'user@gmail.com'). Required when multiple accounts are configured.",
+			"description": desc,
 		}
 	}
 	s.AddTool(tool, handler)
@@ -97,9 +104,17 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Warning: failed to detect multi-account mode: %v\n", err)
 		}
 	}
+	// accountNames holds the account emails known at startup (for Layer 2 hints).
+	// This is a snapshot; accounts added mid-session are discovered via list_accounts (Layer 3)
+	// or the self-healing error in Resolve (Layer 1).
+	var accountNames []string
+
 	if multiAccount {
 		fmt.Fprintf(os.Stderr, "Multi-account mode enabled. Accounts resolved at tool call time.\n")
 		reg = registry.NewMultiAccountRegistry(scopes)
+		if names, err := auth.ListAccounts(); err == nil {
+			accountNames = names
+		}
 	} else {
 		opts, err := auth.GetClientOptions(context.Background(), *credentialsFile, scopes)
 		if err != nil {
@@ -128,6 +143,45 @@ func main() {
 		mcp.WithDescription("Ping the server to check availability"),
 		mcp.WithString("message", mcp.Required(), mcp.Description("Message to echo back")),
 	), pingHandler)
+
+	// Tool: List Accounts (Layer 3 — runtime account discovery)
+	// Registered directly via s.AddTool (not addTool) because this tool does NOT
+	// need the account parameter itself. Only registered in multi-account mode.
+	if multiAccount {
+		s.AddTool(mcp.NewTool("list_accounts",
+			mcp.WithDescription("List all configured Google accounts. Use the email from the response as the 'account' parameter in other tools."),
+		), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			accounts, err := auth.ListAccounts()
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to list accounts: %v", err)), nil
+			}
+			if len(accounts) == 0 {
+				return mcp.NewToolResultError("No accounts configured. Run: go-google-mcp auth login --account <email> --secrets <path>"), nil
+			}
+
+			type accountInfo struct {
+				Email     string `json:"email"`
+				IsDefault bool   `json:"isDefault"`
+			}
+			result := struct {
+				Accounts []accountInfo `json:"accounts"`
+				Count    int           `json:"count"`
+				Tip      string        `json:"tip"`
+			}{
+				Count: len(accounts),
+				Tip:   "Pass the email as the 'account' parameter in any tool call.",
+			}
+			for i, a := range accounts {
+				result.Accounts = append(result.Accounts, accountInfo{
+					Email:     a,
+					IsDefault: i == 0 && len(accounts) == 1,
+				})
+			}
+
+			jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+			return mcp.NewToolResultText(string(jsonBytes)), nil
+		})
+	}
 
 	// Tool: Drive Search
 	addTool(s, mcp.NewTool("drive_search",
@@ -201,7 +255,7 @@ func main() {
 			result = "No files found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Find Files (account-wide discovery)
 	addTool(s, mcp.NewTool("drive_find_files",
@@ -256,7 +310,7 @@ func main() {
 			result = "No files found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Read File
 	addTool(s, mcp.NewTool("drive_read_file",
@@ -280,7 +334,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(content), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Create File
 	addTool(s, mcp.NewTool("drive_create_file",
@@ -312,7 +366,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Created file: %s (ID: %s)", file.Name, file.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Create Folder
 	addTool(s, mcp.NewTool("drive_create_folder",
@@ -337,7 +391,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Created folder: %s (ID: %s)", folder.Name, folder.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Update File
 	addTool(s, mcp.NewTool("drive_update_file",
@@ -373,7 +427,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Updated file: %s (ID: %s)", file.Name, file.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Trash File
 	addTool(s, mcp.NewTool("drive_trash_file",
@@ -395,7 +449,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Trashed file: %s", fileID)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Share File
 	addTool(s, mcp.NewTool("drive_share_file",
@@ -424,7 +478,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Shared file %s with %s as %s", fileID, email, role)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Get Recent Activity
 	addTool(s, mcp.NewTool("drive_get_recent_activity",
@@ -455,7 +509,7 @@ func main() {
 			result = "No recent activity found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive List Comments
 	addTool(s, mcp.NewTool("drive_list_comments",
@@ -495,7 +549,7 @@ func main() {
 			result = "No comments found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Drive Add Comment
 	addTool(s, mcp.NewTool("drive_add_comment",
@@ -522,7 +576,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to add comment: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Comment added (ID: %s)", comment.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Gmail List Threads
 	addTool(s, mcp.NewTool("gmail_list_threads",
@@ -551,7 +605,7 @@ func main() {
 			result = "No threads found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Gmail Read Thread
 	addTool(s, mcp.NewTool("gmail_read_thread",
@@ -590,7 +644,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Gmail Send Email
 	addTool(s, mcp.NewTool("gmail_send_email",
@@ -623,7 +677,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Email sent! ID: %s", msg.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Gmail Create Draft
 	addTool(s, mcp.NewTool("gmail_create_draft",
@@ -656,7 +710,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Draft created! ID: %s", draft.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Gmail Trash Thread
 	addTool(s, mcp.NewTool("gmail_trash_thread",
@@ -678,7 +732,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Thread %s moved to trash.", threadID)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Gmail List Labels
 	addTool(s, mcp.NewTool("gmail_list_labels",
@@ -699,7 +753,7 @@ func main() {
 			result += fmt.Sprintf("ID: %s | Name: %s | Type: %s\n", l.Id, l.Name, l.Type)
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Calendar List Events
 	addTool(s, mcp.NewTool("calendar_list_events",
@@ -736,7 +790,7 @@ func main() {
 			result = "No upcoming events found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Calendar Create Event
 	addTool(s, mcp.NewTool("calendar_create_event",
@@ -782,7 +836,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Created event: %s (ID: %s)", event.Summary, event.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Calendar Delete Event
 	addTool(s, mcp.NewTool("calendar_delete_event",
@@ -806,7 +860,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Deleted event: %s", eventID)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Sheets Create Spreadsheet
 	addTool(s, mcp.NewTool("sheets_create_spreadsheet",
@@ -829,7 +883,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Created spreadsheet: %s (ID: %s)\nURL: %s", sp.Properties.Title, sp.SpreadsheetId, sp.SpreadsheetUrl)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Sheets Read Values
 	addTool(s, mcp.NewTool("sheets_read_values",
@@ -863,7 +917,7 @@ func main() {
 		// JSON output is often best for structured data analysis by AI
 		jsonBytes, _ := json.MarshalIndent(values, "", "  ")
 		return mcp.NewToolResultText(string(jsonBytes)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Sheets Append Values
 	addTool(s, mcp.NewTool("sheets_append_values",
@@ -896,7 +950,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Appended %d cells.", resp.Updates.UpdatedCells)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Sheets Update Values
 	addTool(s, mcp.NewTool("sheets_update_values",
@@ -929,7 +983,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Updated %d cells.", resp.UpdatedCells)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Sheets Get Spreadsheet (metadata, sheet IDs and titles)
 	addTool(s, mcp.NewTool("sheets_get_spreadsheet",
@@ -962,7 +1016,7 @@ func main() {
 		out := map[string]interface{}{"spreadsheetId": sp.SpreadsheetId, "title": sp.Properties.Title, "sheets": sheetsList}
 		jsonBytes, _ := json.MarshalIndent(out, "", "  ")
 		return mcp.NewToolResultText(string(jsonBytes)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Sheets Batch Update (add sheet, rename sheet, etc.)
 	addTool(s, mcp.NewTool("sheets_batch_update",
@@ -995,7 +1049,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to batch update: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Batch update applied. Replies: %d", len(resp.Replies))), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Sheets Clear Values
 	addTool(s, mcp.NewTool("sheets_clear_values",
@@ -1021,7 +1075,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to clear values: %v", err)), nil
 		}
 		return mcp.NewToolResultText("Range cleared."), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: People List Connections
 	addTool(s, mcp.NewTool("people_list_connections",
@@ -1056,7 +1110,7 @@ func main() {
 			result = "No connections found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: People Create Contact
 	addTool(s, mcp.NewTool("people_create_contact",
@@ -1083,7 +1137,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Created contact: %s (ID: %s)", givenName, person.ResourceName)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Docs Create Document
 	addTool(s, mcp.NewTool("docs_create_document",
@@ -1115,7 +1169,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Created document: %s (ID: %s)", doc.Title, doc.DocumentId)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Docs Read Document
 	addTool(s, mcp.NewTool("docs_read_document",
@@ -1152,7 +1206,7 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Title: %s\n\n%s", doc.Title, text)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Tasks List Task Lists
 	addTool(s, mcp.NewTool("tasks_list_tasklists",
@@ -1179,7 +1233,7 @@ func main() {
 			result = "No task lists found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Tasks List Tasks
 	addTool(s, mcp.NewTool("tasks_list_tasks",
@@ -1224,7 +1278,7 @@ func main() {
 			result = "No tasks found."
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Tasks Insert Task
 	addTool(s, mcp.NewTool("tasks_insert_task",
@@ -1255,7 +1309,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to insert task: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Created task: %s (ID: %s)", task.Title, task.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Tasks Update Task
 	addTool(s, mcp.NewTool("tasks_update_task",
@@ -1304,7 +1358,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to update task: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Updated task: %s (ID: %s)", task.Title, task.Id)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Tasks Delete Task
 	addTool(s, mcp.NewTool("tasks_delete_task",
@@ -1330,7 +1384,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to delete task: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Deleted task: %s", taskID)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Keep List Notes
 	addTool(s, mcp.NewTool("keep_list_notes",
@@ -1370,7 +1424,7 @@ func main() {
 			result += fmt.Sprintf("\nnext_page_token: %s", resp.NextPageToken)
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Keep Create Note
 	addTool(s, mcp.NewTool("keep_create_note",
@@ -1416,7 +1470,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create note: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Created note: %s (name: %s)", note.Title, note.Name)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Keep Get Note
 	addTool(s, mcp.NewTool("keep_get_note",
@@ -1462,7 +1516,7 @@ func main() {
 			}
 		}
 		return mcp.NewToolResultText(result), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Keep Update Note (edit)
 	addTool(s, mcp.NewTool("keep_update_note",
@@ -1511,7 +1565,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to update note: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Updated note (new name: %s): %s", note.Name, note.Title)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Tool: Keep Delete Note
 	addTool(s, mcp.NewTool("keep_delete_note",
@@ -1535,7 +1589,7 @@ func main() {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to delete note: %v", err)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("Deleted note: %s", name)), nil
-	}, multiAccount)
+	}, multiAccount, accountNames)
 
 	// Start server (stdio)
 	if err := server.ServeStdio(s); err != nil {

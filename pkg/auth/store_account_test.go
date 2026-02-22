@@ -235,6 +235,42 @@ func TestMultiAccount(t *testing.T) {
 		}
 	})
 
+	t.Run("SaveTokenForAccount_Permissions", func(t *testing.T) {
+		account := "perms@example.com"
+		token := &oauth2.Token{AccessToken: "perms-test"}
+
+		if err := SaveTokenForAccount(account, token); err != nil {
+			t.Fatalf("failed to save token: %v", err)
+		}
+
+		dir, _ := GetAccountDir(account)
+		info, err := os.Stat(filepath.Join(dir, TokenFileName))
+		if err != nil {
+			t.Fatalf("failed to stat token file: %v", err)
+		}
+		perm := info.Mode().Perm()
+		if perm != 0600 {
+			t.Errorf("token file permissions = %o, want 0600", perm)
+		}
+	})
+
+	t.Run("LoadSecretsForAccount_UnreadableReturnsError", func(t *testing.T) {
+		account := "unreadable@example.com"
+
+		// Create per-account secrets with no read permission.
+		accountDir, _ := GetAccountDir(account)
+		secretsPath := filepath.Join(accountDir, SecretsFileName)
+		_ = os.WriteFile(secretsPath, []byte(`{"broken": true}`), 0000)
+
+		_, err := LoadSecretsForAccount(account)
+		if err == nil {
+			t.Error("expected error for unreadable per-account secrets, got nil")
+		}
+
+		// Clean up: restore permissions so os.RemoveAll works.
+		_ = os.Chmod(secretsPath, 0600)
+	})
+
 	t.Run("ValidAccountNames_Accepted", func(t *testing.T) {
 		valid := []string{
 			"user@gmail.com",

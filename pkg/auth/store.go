@@ -46,7 +46,7 @@ func GetConfigDir() (string, error) {
 	return dir, nil
 }
 
-// SaveToken saves the OAuth2 token to disk.
+// SaveToken saves the OAuth2 token to disk with restricted permissions (0600).
 func SaveToken(token *oauth2.Token) error {
 	dir, err := GetConfigDir()
 	if err != nil {
@@ -54,7 +54,7 @@ func SaveToken(token *oauth2.Token) error {
 	}
 	path := filepath.Join(dir, TokenFileName)
 
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -199,14 +199,15 @@ func GetAccountDir(account string) (string, error) {
 	return accountDir, nil
 }
 
-// SaveTokenForAccount saves an OAuth2 token for a specific account.
+// SaveTokenForAccount saves an OAuth2 token for a specific account
+// with restricted permissions (0600) to prevent credential exposure.
 func SaveTokenForAccount(account string, token *oauth2.Token) error {
 	dir, err := GetAccountDir(account)
 	if err != nil {
 		return err
 	}
 	path := filepath.Join(dir, TokenFileName)
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -238,8 +239,9 @@ func LoadTokenForAccount(account string) (*oauth2.Token, error) {
 }
 
 // LoadSecretsForAccount loads client secrets for an account.
-// Falls back to the shared (root-level) client_secrets.json if the
-// account doesn't have its own.
+// Falls back to the shared (root-level) client_secrets.json only if the
+// per-account file does not exist. Other errors (permission, corruption)
+// are returned immediately to avoid silently using the wrong OAuth client.
 func LoadSecretsForAccount(account string) ([]byte, error) {
 	// Try per-account secrets first.
 	dir, err := GetAccountDir(account)
@@ -247,8 +249,12 @@ func LoadSecretsForAccount(account string) ([]byte, error) {
 		return nil, err
 	}
 	perAccount := filepath.Join(dir, SecretsFileName)
-	if data, err := os.ReadFile(perAccount); err == nil {
+	data, err := os.ReadFile(perAccount)
+	if err == nil {
 		return data, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("per-account secrets for %q unreadable: %w", account, err)
 	}
 	// Fall back to shared secrets.
 	return LoadSecrets()
